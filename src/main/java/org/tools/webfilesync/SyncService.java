@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -18,6 +19,9 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class SyncService {
+	
+	@Autowired
+	private SyncFileRepository repo;
 	
 	@Autowired
     private ApplicationArguments args;
@@ -55,7 +59,26 @@ public class SyncService {
 		List<Path> paths;
 		try {
 			paths = listFiles(path);
-			paths.forEach(x -> System.out.println(x));			
+			paths.forEach(x -> {
+				System.out.println(x);
+				SyncFile prevfile = repo.findOneByPath(x.toAbsolutePath().toString());
+				if(prevfile!=null) {
+					System.out.println("File already exists :" + prevfile.getPath());
+					if(prevfile.getLastUpdate()!=x.toFile().lastModified()) {
+						System.out.println("File updated :" + String.valueOf(x.toFile().lastModified()));
+					}
+					prevfile.setLastChecked(new Date());
+					repo.save(prevfile);
+				}
+				else {
+					SyncFile sfile = new SyncFile();
+					sfile.setName(x.getFileName().toString());
+					sfile.setPath(x.toAbsolutePath().toString());
+					sfile.setLastUpdate(x.toFile().lastModified());
+					sfile.setLastChecked(new Date());
+					repo.save(sfile);
+				}
+			});			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
