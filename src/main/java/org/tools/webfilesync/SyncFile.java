@@ -22,4 +22,5 @@ public class SyncFile {
 	private String path;
 	private Long lastUpdate;
 	private Date lastChecked;
+	private String op;
 }

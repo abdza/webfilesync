@@ -66,6 +66,10 @@ public class SyncService {
 					System.out.println("File already exists :" + prevfile.getPath());
 					if(prevfile.getLastUpdate()!=x.toFile().lastModified()) {
 						System.out.println("File updated :" + String.valueOf(x.toFile().lastModified()));
+						prevfile.setOp("upload");
+					}
+					else {
+						prevfile.setOp("no-op");
 					}
 					prevfile.setLastChecked(new Date());
 					repo.save(prevfile);
@@ -76,6 +80,7 @@ public class SyncService {
 					sfile.setPath(x.toAbsolutePath().toString());
 					sfile.setLastUpdate(x.toFile().lastModified());
 					sfile.setLastChecked(new Date());
+					sfile.setOp("upload");
 					repo.save(sfile);
 				}
 			});			
