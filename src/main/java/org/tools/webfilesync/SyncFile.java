@@ -20,7 +20,10 @@ public class SyncFile {
 	private Long id;	
 	private String name;
 	private String path;
+	private String folderPath;
+	private String relPath;
 	private Long lastUpdate;
 	private Date lastChecked;
 	private String op;
+	private Long size;
 }

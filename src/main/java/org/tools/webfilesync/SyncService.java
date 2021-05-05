@@ -1,5 +1,6 @@
 package org.tools.webfilesync;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,9 +14,17 @@ import javax.annotation.PostConstruct;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 
 @Service
 public class SyncService {
@@ -53,7 +62,7 @@ public class SyncService {
 
     }
 	
-	public void syncfile(String basefolder) {
+	public void synclocalfile(String basefolder) {			    
 		System.out.println("Syncing " + basefolder);
 		Path path = Paths.get(basefolder);
 		List<Path> paths;
@@ -67,6 +76,12 @@ public class SyncService {
 					if(prevfile.getLastUpdate()!=x.toFile().lastModified()) {
 						System.out.println("File updated :" + String.valueOf(x.toFile().lastModified()));
 						prevfile.setOp("upload");
+						try {
+							prevfile.setSize(Files.size(x));						
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
 					}
 					else {
 						prevfile.setOp("no-op");
@@ -75,24 +90,67 @@ public class SyncService {
 					repo.save(prevfile);
 				}
 				else {
-					SyncFile sfile = new SyncFile();
+					SyncFile sfile = new SyncFile();					
 					sfile.setName(x.getFileName().toString());
-					sfile.setPath(x.toAbsolutePath().toString());
+					sfile.setPath(x.toAbsolutePath().toString());					
+					sfile.setFolderPath(x.getParent().toString());
+					sfile.setRelPath(x.getParent().toString().substring(basefolder.length()));
 					sfile.setLastUpdate(x.toFile().lastModified());
 					sfile.setLastChecked(new Date());
 					sfile.setOp("upload");
+					
+					try {
+						sfile.setSize(Files.size(x));						
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
 					repo.save(sfile);
+					
 				}
 			});			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		}        
+		}
+	}
+	
+	
+	public void syncuploadfile(Long maxsize) {		
+		
+		List<SyncFile> ufiles = repo.findAllByOp("upload");
+		String fileurl = "http://localhost:9010/api/file_manager/explore/downloads";
+		ufiles.forEach(uf -> {			
+			System.out.println("Sending " + uf.getName());
+			if(uf.getSize()<maxsize) {
+				RestTemplate restTemplate = new RestTemplate();
+			    HttpHeaders headers = new HttpHeaders();
+			    headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+			    headers.add("authorization", "Basic YWRtaW46Y2JteWQzdiFAIw==");
+			    
+			    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+			    body.add("file", new FileSystemResource(new File(uf.getPath())));
+			    body.add("rel_path", uf.getRelPath());
+			    
+			    // MultiValueMap<String, String> map= new LinkedMultiValueMap<>();
+			    //map.add("rel_path", "/hero/");
+			    
+			    HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+			    
+			    ResponseEntity<String> response = restTemplate.postForEntity(
+			    		fileurl, request , String.class);
+			}
+			else {
+				System.out.println("FIle too big to send");
+			}
+		});
 	}
 	
 	@PostConstruct
 	public void init() {
-		String basefolder = ".";
+		String basefolder = null;
+		Long maxsize = (long) 50000000;
 		
 		if(args.containsOption("basefolder")) 
         {
@@ -105,6 +163,22 @@ public class SyncService {
 				e.printStackTrace();
 			}
         }
-		syncfile(basefolder);
+		
+		if(args.containsOption("maxsize")) 
+        {
+            //Get argument values
+            List<String> values = args.getOptionValues("maxsize");
+            try {	            	
+				maxsize = Long.valueOf(values.get(0));				
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+		
+		if(basefolder!=null) {
+			synclocalfile(basefolder);
+			syncuploadfile(maxsize);
+		}
 	}
 }
