@@ -10,4 +10,5 @@ public interface SyncFileRepository  extends JpaRepository<SyncFile, Long> {
 	SyncFile findOneByPath(String path);
 	List<SyncFile> findAllByOp(String op);
 	List<SyncFile> findAllByLastCheckedNot(Date lastChecked);
+	List<SyncFile> findAllByLastCheckedNotAndOpNot(Date lastChecked,String op);
 }

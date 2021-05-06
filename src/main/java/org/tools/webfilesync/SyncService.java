@@ -115,15 +115,17 @@ public class SyncService {
 	}
 	
 	public void detectDeleted(Date updateDate) {
-		List<SyncFile> ufiles = repo.findAllByLastCheckedNot(updateDate);
+		List<SyncFile> ufiles = repo.findAllByLastCheckedNotAndOpNot(updateDate,"deleted");
 		
-		ufiles.forEach(uf -> {			
+		ufiles.forEach(uf -> {
 			System.out.println("Checking file " + uf.getName());
-			File curfile = new File(uf.getPath());
-			if(!curfile.exists()) {
-				uf.setOp("delete");
-				uf.setLastChecked(updateDate);
-				repo.save(uf);
+			if(!uf.getOp().equals("deleted")) {				
+				File curfile = new File(uf.getPath());
+				if(!curfile.exists()) {
+					uf.setOp("delete");
+					uf.setLastChecked(updateDate);
+					repo.save(uf);
+				}
 			}
 		});
 	}
@@ -156,7 +158,7 @@ public class SyncService {
 			    repo.save(uf);
 			}
 			else {
-				System.out.println("FIle too big to send");
+				System.out.println("File too big to send");
 			}
 		});
 	}
@@ -182,9 +184,9 @@ public class SyncService {
 		    
 		    ResponseEntity<String> response = restTemplate.postForEntity(
 		    		fileurl, request , String.class);
-		    uf.setOp("no-op");
-		    repo.save(uf);
-			
+		    
+		    uf.setOp("deleted");
+		    repo.save(uf);			
 		});
 	}
 	
@@ -257,5 +259,7 @@ public class SyncService {
 			detectDeleted(updateDate);
 			syncdeletefile(updateDate,fileurl, base64Creds);
 		}
+		System.out.println("Done it all");
+		System.out.println(updateDate);
 	}
 }
