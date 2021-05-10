@@ -1,10 +1,13 @@
 package org.tools.webfilesync;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
@@ -75,7 +78,7 @@ public class SyncService {
 
     }
 	
-	public void synclocalfile(Date updateDate, String basefolder) {
+	public void synclocalfile(Date updateDate, String basefolder,List<String> filters) {
 		Path path = Paths.get(basefolder);
 		List<Path> paths;
 		try {
@@ -90,8 +93,22 @@ public class SyncService {
 				String folderpath = x.getParent().toString();
 				Long lastModified = x.toFile().lastModified();
 				SyncFile prevfile = repo.findOneByRelPathAndName(relpath,filename);
+				boolean validfile = true;
+				if(absolutepath.equals(basefolder)) {
+					validfile = false;
+				}
+				if(filters.size()>0) {					
+					for(String filter:filters) {						
+						if(absolutepath.contains(filter)) {
+							validfile = false;							
+						}
+						else if(absolutepath.matches(filter)) {
+							validfile = false;
+						}
+					}
+				}
 				
-				if(!absolutepath.equals(basefolder)) {
+				if(validfile) {
 					if(prevfile!=null) {
 						if(!prevfile.getLastUpdate().equals(lastModified)) {
 							prevfile.setOp("upload");
@@ -225,6 +242,7 @@ public class SyncService {
 		Long maxsize = (long) 50000000;
 		String fileurl = "http://localhost:9010/api/file_manager/explore/downloads";
 		Date updateDate = new Date();
+		List<String> filters = new ArrayList<String>();
 		
 		if(args.containsOption("basefolder")) 
         {
@@ -244,6 +262,24 @@ public class SyncService {
             List<String> values = args.getOptionValues("fileurl");
             try {	            	
 				fileurl = values.get(0);				
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+		
+		if(args.containsOption("filtersfile")) 
+        {
+            //Get argument values
+            List<String> values = args.getOptionValues("filtersfile");
+            try {        	
+				try (BufferedReader br = new BufferedReader(new FileReader(values.get(0)))) {
+				    String line;
+				    while ((line = br.readLine()) != null) {
+				       // process the line.
+				    	filters.add(line);
+				    }
+				}
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -282,7 +318,7 @@ public class SyncService {
 		String base64Creds = new String(base64CredsBytes);
 		
 		if(basefolder!=null) {
-			synclocalfile(updateDate,basefolder);
+			synclocalfile(updateDate,basefolder,filters);
 			syncuploadfile(updateDate,fileurl, base64Creds, maxsize);
 			detectDeleted(updateDate);
 			syncdeletefile(updateDate,fileurl, base64Creds);
