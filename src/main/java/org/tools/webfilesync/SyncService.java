@@ -8,6 +8,7 @@ import java.nio.file.Paths;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -63,49 +64,67 @@ public class SyncService {
 
     }
 	
-	public void synclocalfile(Date updateDate, String basefolder) {			    
-		System.out.println("Syncing " + basefolder);
+	public static List<Path> listAll(Path path) throws IOException {
+
+        List<Path> result;
+        try (Stream<Path> walk = Files.walk(path)) {
+            result = walk
+                    .collect(Collectors.toList());
+        }
+        return result;
+
+    }
+	
+	public void synclocalfile(Date updateDate, String basefolder) {
 		Path path = Paths.get(basefolder);
 		List<Path> paths;
 		try {
-			paths = listFiles(path);
+			paths = listAll(path);
 			paths.forEach(x -> {
-				System.out.println(x);
-				SyncFile prevfile = repo.findOneByPath(x.toAbsolutePath().toString());
-				if(prevfile!=null) {
-					System.out.println("File already exists :" + prevfile.getPath());
-					if(prevfile.getLastUpdate()!=x.toFile().lastModified()) {
-						System.out.println("File updated :" + String.valueOf(x.toFile().lastModified()));
-						prevfile.setOp("upload");
+				String relpath = "/";
+				if(x.getParent().toString().length()>basefolder.length()) {
+					relpath = x.getParent().toString().substring(basefolder.length());
+				}
+				String filename = x.getFileName().toString();
+				String absolutepath = x.toAbsolutePath().toString();
+				String folderpath = x.getParent().toString();
+				Long lastModified = x.toFile().lastModified();
+				SyncFile prevfile = repo.findOneByRelPathAndName(relpath,filename);
+				
+				if(!absolutepath.equals(basefolder)) {
+					if(prevfile!=null) {
+						if(!prevfile.getLastUpdate().equals(lastModified)) {
+							prevfile.setOp("upload");
+							try {
+								prevfile.setLastUpdate(lastModified);
+								prevfile.setSize(Files.size(x));
+							} catch (IOException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
+						}
+						prevfile.setLastChecked(updateDate);
+						repo.save(prevfile);
+					}
+					else {
+						SyncFile sfile = new SyncFile();					
+						sfile.setName(filename);
+						sfile.setPath(absolutepath);					
+						sfile.setFolderPath(folderpath);
+						sfile.setRelPath(relpath);
+						sfile.setLastUpdate(lastModified);
+						sfile.setLastChecked(updateDate);
+						sfile.setOp("upload");
+						
 						try {
-							prevfile.setSize(Files.size(x));						
+							sfile.setSize(Files.size(x));						
 						} catch (IOException e) {
 							// TODO Auto-generated catch block
 							e.printStackTrace();
 						}
+						
+						repo.save(sfile);						
 					}
-					prevfile.setLastChecked(updateDate);
-					repo.save(prevfile);
-				}
-				else {
-					SyncFile sfile = new SyncFile();					
-					sfile.setName(x.getFileName().toString());
-					sfile.setPath(x.toAbsolutePath().toString());					
-					sfile.setFolderPath(x.getParent().toString());
-					sfile.setRelPath(x.getParent().toString().substring(basefolder.length()));
-					sfile.setLastUpdate(x.toFile().lastModified());
-					sfile.setLastChecked(updateDate);
-					sfile.setOp("upload");
-					
-					try {
-						sfile.setSize(Files.size(x));						
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-					
-					repo.save(sfile);
-					
 				}
 			});			
 		} catch (IOException e) {
@@ -117,8 +136,7 @@ public class SyncService {
 	public void detectDeleted(Date updateDate) {
 		List<SyncFile> ufiles = repo.findAllByLastCheckedNotAndOpNot(updateDate,"deleted");
 		
-		ufiles.forEach(uf -> {
-			System.out.println("Checking file " + uf.getName());
+		ufiles.forEach(uf -> {			
 			if(!uf.getOp().equals("deleted")) {				
 				File curfile = new File(uf.getPath());
 				if(!curfile.exists()) {
@@ -131,45 +149,54 @@ public class SyncService {
 	}
 	
 	
-	public void syncuploadfile(Date updateDate, String fileurl, String base64creds, Long maxsize) {		
-		System.out.println("In syncupload");
+	public void syncuploadfile(Date updateDate, String fileurl, String base64creds, Long maxsize) {
 		List<SyncFile> ufiles = repo.findAllByOp("upload");
 		
-		ufiles.forEach(uf -> {			
-			System.out.println("Sending " + uf.getName());
+		ufiles.forEach(uf -> {
 			if(uf.getSize()<maxsize) {
 				RestTemplate restTemplate = new RestTemplate();
-			    HttpHeaders headers = new HttpHeaders();
-			    headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+			    HttpHeaders headers = new HttpHeaders();			    
 			    headers.add("authorization", "Basic " + base64creds);
+			    File curfile = new File(uf.getPath());
+			    if(curfile.isFile()) {
+			    	headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+				    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+				    body.add("file", new FileSystemResource(new File(uf.getPath())));
+				    body.add("rel_path", uf.getRelPath());
+		    
+				    HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+				    
+				    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);
+			    }
+			    else if(curfile.isDirectory()) {
+			    	MultiValueMap<String, String> map= new LinkedMultiValueMap<>();
+				    map.add("rel_path", uf.getRelPath());
+				    map.add("filename", uf.getName());
+				    map.add("op", "mkdir");				    
+				    
+				    HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(map, headers);
+				    
+				    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);			    	
+			    }
 			    
-			    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-			    body.add("file", new FileSystemResource(new File(uf.getPath())));
-			    body.add("rel_path", uf.getRelPath());
+			    Optional<SyncFile> cfile = repo.findById(uf.getId());
+			    if(cfile!=null) {
+			    	SyncFile dd = cfile.get();
+			    	dd.setOp("no-op");
+			    	repo.save(dd);
+			    }
 			    
-			    // MultiValueMap<String, String> map= new LinkedMultiValueMap<>();
-			    //map.add("rel_path", "/hero/");
-			    
-			    HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
-			    
-			    ResponseEntity<String> response = restTemplate.postForEntity(
-			    		fileurl, request , String.class);
-			    uf.setOp("no-op");
-			    repo.save(uf);
 			}
 			else {
-				System.out.println("File too big to send");
+				System.out.println("File too big to send:" + uf.getName());
 			}
 		});
 	}
 	
-	public void syncdeletefile(Date updateDate, String fileurl, String base64creds) {		
-		System.out.println("In syncdelete");
+	public void syncdeletefile(Date updateDate, String fileurl, String base64creds) {
 		List<SyncFile> ufiles = repo.findAllByOp("delete");
 		
-		ufiles.forEach(uf -> {			
-			System.out.println("Deleting " + uf.getName());
-			
+		ufiles.forEach(uf -> {
 			RestTemplate restTemplate = new RestTemplate();
 		    HttpHeaders headers = new HttpHeaders();
 		    headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -182,11 +209,13 @@ public class SyncService {
 		    
 		    HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(map, headers);
 		    
-		    ResponseEntity<String> response = restTemplate.postForEntity(
-		    		fileurl, request , String.class);
+		    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);
 		    
-		    uf.setOp("deleted");
-		    repo.save(uf);			
+		    Optional<SyncFile> cfile = repo.findById(uf.getId());
+		    if(cfile!=null) {
+		    	SyncFile dd = cfile.get();		    	
+		    	repo.delete(dd);
+		    }			
 		});
 	}
 	
@@ -249,8 +278,7 @@ public class SyncService {
         }
 		
 		byte[] plainCredsBytes = plainCreds.getBytes();
-		byte[] base64CredsBytes = Base64.getEncoder().encode(plainCredsBytes);
-		//byte[] base64CredsBytes = Base64.encodeBase64(plainCredsBytes);
+		byte[] base64CredsBytes = Base64.getEncoder().encode(plainCredsBytes);		
 		String base64Creds = new String(base64CredsBytes);
 		
 		if(basefolder!=null) {
@@ -259,7 +287,5 @@ public class SyncService {
 			detectDeleted(updateDate);
 			syncdeletefile(updateDate,fileurl, base64Creds);
 		}
-		System.out.println("Done it all");
-		System.out.println(updateDate);
 	}
 }
