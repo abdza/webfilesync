@@ -7,9 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface SyncFileRepository  extends JpaRepository<SyncFile, Long> {
 
-	SyncFile findOneByPath(String path);
-	SyncFile findOneByRelPathAndName(String path,String name);
-	List<SyncFile> findAllByOp(String op);
-	List<SyncFile> findAllByLastCheckedNot(Date lastChecked);
-	List<SyncFile> findAllByLastCheckedNotAndOpNot(Date lastChecked,String op);
+	SyncFile findOneByPathAndFileurl(String path,String fileurl);
+	SyncFile findOneByRelPathAndNameAndFileurl(String path,String name,String fileurl);
+	List<SyncFile> findAllByOpAndFileurl(String op,String fileurl);
+	List<SyncFile> findAllByLastCheckedNotAndFileurl(Date lastChecked,String fileurl);
+	List<SyncFile> findAllByLastCheckedNotAndOpNotAndFileurl(Date lastChecked,String op,String fileurl);
 }

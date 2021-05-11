@@ -24,8 +24,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -40,10 +38,9 @@ public class SyncService {
 	@Autowired
     private ApplicationArguments args;
 	
-	@Autowired
-	private NamedParameterJdbcTemplate namedjdbctemplate;
-	
-	private MapSqlParameterSource paramsource;
+	private Integer verbose; 
+	private String fileurl;
+	private Date updateDate;
 	
 	public static List<Path> listDirectories(Path path) throws IOException {
 
@@ -78,12 +75,18 @@ public class SyncService {
 
     }
 	
-	public void synclocalfile(Date updateDate, String basefolder,List<String> filters) {
+	public void synclocalfile(String basefolder,List<String> filters) {
+		if(verbose>0) {
+			System.out.println("Sync local file");
+		}
 		Path path = Paths.get(basefolder);
 		List<Path> paths;
 		try {
 			paths = listAll(path);
 			paths.forEach(x -> {
+				if(verbose>1) {
+					System.out.println("Sync file:" + x.getFileName());
+				}
 				String relpath = "/";
 				if(x.getParent().toString().length()>basefolder.length()) {
 					relpath = x.getParent().toString().substring(basefolder.length());
@@ -92,7 +95,7 @@ public class SyncService {
 				String absolutepath = x.toAbsolutePath().toString();
 				String folderpath = x.getParent().toString();
 				Long lastModified = x.toFile().lastModified();
-				SyncFile prevfile = repo.findOneByRelPathAndName(relpath,filename);
+				SyncFile prevfile = repo.findOneByRelPathAndNameAndFileurl(relpath,filename,fileurl);
 				boolean validfile = true;
 				if(absolutepath.equals(basefolder)) {
 					validfile = false;
@@ -100,17 +103,32 @@ public class SyncService {
 				if(filters.size()>0) {					
 					for(String filter:filters) {						
 						if(absolutepath.contains(filter)) {
-							validfile = false;							
+							validfile = false;		
+							if(verbose>1) {
+								System.out.println("Fail because of filter:" + filter);
+							}
 						}
 						else if(absolutepath.matches(filter)) {
 							validfile = false;
+							if(verbose>1) {
+								System.out.println("Fail because of filter:" + filter);
+							}
 						}
 					}
 				}
 				
 				if(validfile) {
+					if(verbose>1) {
+						System.out.println("Is a valid file");
+					}
 					if(prevfile!=null) {
+						if(verbose>1) {
+							System.out.println("Record already exists");
+						}
 						if(!prevfile.getLastUpdate().equals(lastModified)) {
+							if(verbose>1) {
+								System.out.println("Record last update is different:" + String.valueOf(prevfile.getLastUpdate()) + " from file:" + String.valueOf(lastModified));
+							}
 							prevfile.setOp("upload");
 							try {
 								prevfile.setLastUpdate(lastModified);
@@ -122,8 +140,14 @@ public class SyncService {
 						}
 						prevfile.setLastChecked(updateDate);
 						repo.save(prevfile);
+						if(verbose>1) {
+							System.out.println("Saved update");
+						}
 					}
 					else {
+						if(verbose>1) {
+							System.out.println("Record does not exists");
+						}
 						SyncFile sfile = new SyncFile();					
 						sfile.setName(filename);
 						sfile.setPath(absolutepath);					
@@ -132,6 +156,7 @@ public class SyncService {
 						sfile.setLastUpdate(lastModified);
 						sfile.setLastChecked(updateDate);
 						sfile.setOp("upload");
+						sfile.setFileurl(fileurl);
 						
 						try {
 							sfile.setSize(Files.size(x));						
@@ -140,7 +165,15 @@ public class SyncService {
 							e.printStackTrace();
 						}
 						
-						repo.save(sfile);						
+						repo.save(sfile);		
+						if(verbose>1) {
+							System.out.println("Saved new record");
+						}
+					}
+				}
+				else {
+					if(verbose>1) {
+						System.out.println("File not valid");
 					}
 				}
 			});			
@@ -150,13 +183,22 @@ public class SyncService {
 		}
 	}
 	
-	public void detectDeleted(Date updateDate) {
-		List<SyncFile> ufiles = repo.findAllByLastCheckedNotAndOpNot(updateDate,"deleted");
+	public void detectDeleted() {
+		if(verbose>0) {
+			System.out.println("In detect delete file");
+		}
+		List<SyncFile> ufiles = repo.findAllByLastCheckedNotAndOpNotAndFileurl(updateDate,"deleted",fileurl);
 		
-		ufiles.forEach(uf -> {			
+		ufiles.forEach(uf -> {
+			if(verbose>1) {
+				System.out.println("Check deleting file:" + uf.getName());
+			}
 			if(!uf.getOp().equals("deleted")) {				
 				File curfile = new File(uf.getPath());
 				if(!curfile.exists()) {
+					if(verbose>1) {
+						System.out.println("File does not exists for:" + uf.getName());
+					}
 					uf.setOp("delete");
 					uf.setLastChecked(updateDate);
 					repo.save(uf);
@@ -166,16 +208,25 @@ public class SyncService {
 	}
 	
 	
-	public void syncuploadfile(Date updateDate, String fileurl, String base64creds, Long maxsize) {
-		List<SyncFile> ufiles = repo.findAllByOp("upload");
+	public void syncuploadfile(String base64creds, Long maxsize) {
+		if(verbose>0) {
+			System.out.println("In sync upload file");
+		}
+		List<SyncFile> ufiles = repo.findAllByOpAndFileurl("upload",fileurl);
 		
 		ufiles.forEach(uf -> {
+			if(verbose>1) {
+				System.out.println("Uploading on server: " + uf.getName());
+			}
 			if(uf.getSize()<maxsize) {
 				RestTemplate restTemplate = new RestTemplate();
 			    HttpHeaders headers = new HttpHeaders();			    
 			    headers.add("authorization", "Basic " + base64creds);
 			    File curfile = new File(uf.getPath());
 			    if(curfile.isFile()) {
+			    	if(verbose>1) {
+						System.out.println("Uploading file on server:" + curfile.getName());
+					}
 			    	headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 				    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
 				    body.add("file", new FileSystemResource(new File(uf.getPath())));
@@ -186,6 +237,9 @@ public class SyncService {
 				    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);
 			    }
 			    else if(curfile.isDirectory()) {
+			    	if(verbose>1) {
+						System.out.println("Uploading directory on server:" + curfile.getName());
+					}
 			    	MultiValueMap<String, String> map= new LinkedMultiValueMap<>();
 				    map.add("rel_path", uf.getRelPath());
 				    map.add("filename", uf.getName());
@@ -199,6 +253,9 @@ public class SyncService {
 			    Optional<SyncFile> cfile = repo.findById(uf.getId());
 			    if(cfile!=null) {
 			    	SyncFile dd = cfile.get();
+			    	if(verbose>1) {
+						System.out.println("Changing to no-op:" + dd.getName());
+					}
 			    	dd.setOp("no-op");
 			    	repo.save(dd);
 			    }
@@ -210,10 +267,16 @@ public class SyncService {
 		});
 	}
 	
-	public void syncdeletefile(Date updateDate, String fileurl, String base64creds) {
-		List<SyncFile> ufiles = repo.findAllByOp("delete");
+	public void syncdeletefile(String base64creds) {
+		if(verbose>0) {
+			System.out.println("In sync delete file");
+		}
+		List<SyncFile> ufiles = repo.findAllByOpAndFileurl("delete",fileurl);
 		
 		ufiles.forEach(uf -> {
+			if(verbose>1) {
+				System.out.println("Deleting on server: " + uf.getName());
+			}
 			RestTemplate restTemplate = new RestTemplate();
 		    HttpHeaders headers = new HttpHeaders();
 		    headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -229,8 +292,11 @@ public class SyncService {
 		    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);
 		    
 		    Optional<SyncFile> cfile = repo.findById(uf.getId());
-		    if(cfile!=null) {
-		    	SyncFile dd = cfile.get();		    	
+		    if(cfile!=null) {				
+		    	SyncFile dd = cfile.get();
+		    	if(verbose>1) {
+					System.out.println("Deleting in db: " + dd.getName());
+				}
 		    	repo.delete(dd);
 		    }			
 		});
@@ -240,8 +306,9 @@ public class SyncService {
 	public void init() {
 		String basefolder = null;
 		Long maxsize = (long) 50000000;
-		String fileurl = "http://localhost:9010/api/file_manager/explore/downloads";
-		Date updateDate = new Date();
+		fileurl = "http://localhost:9010/api/file_manager/explore/downloads";
+		updateDate = new Date();
+		verbose = 0;
 		List<String> filters = new ArrayList<String>();
 		
 		if(args.containsOption("basefolder")) 
@@ -250,6 +317,18 @@ public class SyncService {
             List<String> values = args.getOptionValues("basefolder");
             try {	            	
 				basefolder = values.get(0);				
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+		
+		if(args.containsOption("verbose")) 
+        {
+            //Get argument values
+            List<String> values = args.getOptionValues("verbose");
+            try {	            	
+				verbose = Integer.valueOf(values.get(0));				
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -318,10 +397,10 @@ public class SyncService {
 		String base64Creds = new String(base64CredsBytes);
 		
 		if(basefolder!=null) {
-			synclocalfile(updateDate,basefolder,filters);
-			syncuploadfile(updateDate,fileurl, base64Creds, maxsize);
-			detectDeleted(updateDate);
-			syncdeletefile(updateDate,fileurl, base64Creds);
+			synclocalfile(basefolder,filters);
+			syncuploadfile(base64Creds, maxsize);
+			detectDeleted();
+			syncdeletefile(base64Creds);
 		}
 	}
 }
