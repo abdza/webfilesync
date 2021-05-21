@@ -83,13 +83,13 @@ public class SyncService {
 		List<Path> paths;
 		try {
 			paths = listAll(path);
-			paths.forEach(x -> {
-				if(verbose>1) {
-					System.out.println("Sync file:" + x.getFileName());
-				}
+			paths.forEach(x -> {				
 				String relpath = "/";
 				if(x.getParent().toString().length()>basefolder.length()) {
 					relpath = x.getParent().toString().substring(basefolder.length());
+				}
+				if(verbose>1) {
+					System.out.println("Sync file:" + x.getFileName() + " from:" + relpath);
 				}
 				String filename = x.getFileName().toString();
 				String absolutepath = x.toAbsolutePath().toString();
