@@ -82,100 +82,19 @@ public class SyncService {
 		Path path = Paths.get(basefolder);
 		List<Path> paths;
 		try {
-			paths = listAll(path);
+			paths = listDirectories(path);
 			paths.forEach(x -> {				
 				String relpath = "/";
-				if(x.getParent().toString().length()>basefolder.length()) {
-					relpath = x.getParent().toString().substring(basefolder.length());
+				if(x.toAbsolutePath().toString().length()>basefolder.length()) {
+					relpath = x.toAbsolutePath().toString().substring(basefolder.length());
 				}
 				if(verbose>1) {
 					System.out.println("Sync file:" + x.getFileName() + " from:" + relpath);
 				}
-				String filename = x.getFileName().toString();
-				String absolutepath = x.toAbsolutePath().toString();
-				String folderpath = x.getParent().toString();
-				Long lastModified = x.toFile().lastModified();
-				SyncFile prevfile = repo.findOneByRelPathAndNameAndFileurl(relpath,filename,fileurl);
-				boolean validfile = true;
-				if(absolutepath.equals(basefolder)) {
-					validfile = false;
-				}
-				if(filters.size()>0) {					
-					for(String filter:filters) {						
-						if(absolutepath.contains(filter)) {
-							validfile = false;		
-							if(verbose>1) {
-								System.out.println("Fail because of filter:" + filter);
-							}
-						}
-						else if(absolutepath.matches(filter)) {
-							validfile = false;
-							if(verbose>1) {
-								System.out.println("Fail because of filter:" + filter);
-							}
-						}
-					}
-				}
-				
-				if(validfile) {
-					if(verbose>1) {
-						System.out.println("Is a valid file");
-					}
-					if(prevfile!=null) {
-						if(verbose>1) {
-							System.out.println("Record already exists");
-						}
-						if(!prevfile.getLastUpdate().equals(lastModified)) {
-							if(verbose>1) {
-								System.out.println("Record last update is different:" + String.valueOf(prevfile.getLastUpdate()) + " from file:" + String.valueOf(lastModified));
-							}
-							prevfile.setOp("upload");
-							try {
-								prevfile.setLastUpdate(lastModified);
-								prevfile.setSize(Files.size(x));
-							} catch (IOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}
-						}
-						prevfile.setLastChecked(updateDate);
-						repo.save(prevfile);
-						if(verbose>1) {
-							System.out.println("Saved update");
-						}
-					}
-					else {
-						if(verbose>1) {
-							System.out.println("Record does not exists");
-						}
-						SyncFile sfile = new SyncFile();					
-						sfile.setName(filename);
-						sfile.setPath(absolutepath);					
-						sfile.setFolderPath(folderpath);
-						sfile.setRelPath(relpath);
-						sfile.setLastUpdate(lastModified);
-						sfile.setLastChecked(updateDate);
-						sfile.setOp("upload");
-						sfile.setFileurl(fileurl);
-						
-						try {
-							sfile.setSize(Files.size(x));						
-						} catch (IOException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-						
-						repo.save(sfile);		
-						if(verbose>1) {
-							System.out.println("Saved new record");
-						}
-					}
-				}
-				else {
-					if(verbose>1) {
-						System.out.println("File not valid");
-					}
-				}
+				if(x.toFile().isDirectory()) {				
+					Syncher dsync = new Syncher(x.toAbsolutePath().toString(),filters, relpath, fileurl, repo, verbose, updateDate);
+					dsync.start();				
+				}				
 			});			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
@@ -219,47 +138,8 @@ public class SyncService {
 				System.out.println("Uploading on server: " + uf.getName());
 			}
 			if(uf.getSize()<maxsize) {
-				RestTemplate restTemplate = new RestTemplate();
-			    HttpHeaders headers = new HttpHeaders();			    
-			    headers.add("authorization", "Basic " + base64creds);
-			    File curfile = new File(uf.getPath());
-			    if(curfile.isFile()) {
-			    	if(verbose>1) {
-						System.out.println("Uploading file on server:" + curfile.getName());
-					}
-			    	headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-				    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-				    body.add("file", new FileSystemResource(new File(uf.getPath())));
-				    body.add("rel_path", uf.getRelPath());
-		    
-				    HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
-				    
-				    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);
-			    }
-			    else if(curfile.isDirectory()) {
-			    	if(verbose>1) {
-						System.out.println("Uploading directory on server:" + curfile.getName());
-					}
-			    	MultiValueMap<String, String> map= new LinkedMultiValueMap<>();
-				    map.add("rel_path", uf.getRelPath());
-				    map.add("filename", uf.getName());
-				    map.add("op", "mkdir");				    
-				    
-				    HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(map, headers);
-				    
-				    ResponseEntity<String> response = restTemplate.postForEntity(fileurl, request , String.class);			    	
-			    }
-			    
-			    Optional<SyncFile> cfile = repo.findById(uf.getId());
-			    if(cfile!=null) {
-			    	SyncFile dd = cfile.get();
-			    	if(verbose>1) {
-						System.out.println("Changing to no-op:" + dd.getName());
-					}
-			    	dd.setOp("no-op");
-			    	repo.save(dd);
-			    }
-			    
+				Uploader upload = new Uploader(base64creds, uf, verbose, fileurl, repo);
+				upload.start();			    
 			}
 			else {
 				System.out.println("File too big to send:" + uf.getName());
