@@ -19,6 +19,7 @@ import javax.annotation.PostConstruct;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -38,9 +39,16 @@ public class SyncService {
 	@Autowired
     private ApplicationArguments args;
 	
+	private static ApplicationContext ctx;
+	
 	private Integer verbose; 
 	private String fileurl;
 	private Date updateDate;
+	
+	@Autowired
+    private void setApplicationContext(ApplicationContext applicationContext) {
+        ctx = applicationContext;       
+    }
 	
 	public static List<Path> listDirectories(Path path) throws IOException {
 
@@ -81,6 +89,7 @@ public class SyncService {
 		}
 		Path path = Paths.get(basefolder);
 		List<Path> paths;
+		List<Syncher> syncs = new ArrayList<Syncher>();
 		try {
 			paths = listDirectories(path);
 			paths.forEach(x -> {				
@@ -92,14 +101,112 @@ public class SyncService {
 					System.out.println("Sync file:" + x.getFileName() + " from:" + relpath);
 				}
 				if(x.toFile().isDirectory()) {				
-					Syncher dsync = new Syncher(x.toAbsolutePath().toString(),filters, relpath, fileurl, repo, verbose, updateDate);
-					dsync.start();				
-				}				
+					Syncher dsync = ctx.getBean(Syncher.class); // new Syncher(x.toAbsolutePath().toString(),filters, relpath, fileurl, verbose, updateDate);
+					dsync.setBasefolder(x.toAbsolutePath().toString());
+					dsync.setFilters(filters);
+					dsync.setRelpath(relpath);
+					dsync.setFileurl(fileurl);
+					dsync.setVerbose(verbose);
+					dsync.setUpdateDate(updateDate);
+					dsync.start();
+					syncs.add(dsync);
+				}
 			});			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+		System.out.println("----------------- Done starting sync ----------------------");
+		syncs.forEach(sync->{
+			try {				
+				System.out.println("Current status of thread:" + sync.getState().name());
+				if(sync.isAlive()) {
+					sync.join();	
+				}				
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		});
+		System.out.println("----------------- Synced it all ----------------------");
+	}	
+		
+	public void syncuploadfile(String base64creds, Long maxsize) {
+		if(verbose>0) {
+			System.out.println("In sync upload file");
+		}
+		List<SyncFile> ufiles = repo.findAllByOpAndFileurl("upload",fileurl);
+		List<Uploader> uploaders = new ArrayList<Uploader>();
+		int maxthreads = 20;
+		ufiles.forEach(uf -> {
+			if(verbose>1) {
+				System.out.println("Uploading on server: " + uf.getName());
+			}
+			if(uf.getSize()<maxsize) {
+				
+				if(uploaders.size()>=maxthreads-1) {
+					uploaders.forEach(up->{
+						try {
+							if(up.isAlive()) {
+								up.join();
+								uploaders.remove(up);
+							}
+						} catch (InterruptedException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					});
+				}
+				
+				Uploader upload = ctx.getBean(Uploader.class); //new Uploader(base64creds, uf, verbose, fileurl, repo);
+				upload.setBase64creds(base64creds);
+				upload.setUf(uf);
+				upload.setVerbose(verbose);
+				upload.setFileurl(fileurl);
+				upload.start();
+				uploaders.add(upload);		
+				try {
+					Thread.sleep(500);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+					
+					
+					
+					/* boolean foundthread = false;
+					int curup = 0;
+					while(!foundthread) {
+						Uploader dup = uploaders.get(curup);
+						if(!dup.isAlive()) {
+							foundthread = true;
+							dup = ctx.getBean(Uploader.class); //new Uploader(base64creds, uf, verbose, fileurl, repo);
+							dup.setBase64creds(base64creds);
+							dup.setUf(uf);
+							dup.setVerbose(verbose);
+							dup.setFileurl(fileurl);
+							dup.start();
+						}
+						else {
+							curup++;
+							if(curup>=uploaders.size()-1) {
+								try {
+									Thread.sleep(1000);
+								} catch (InterruptedException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								}
+								curup=0;
+							}
+						}
+					}*/
+								
+							    
+			}
+			else {
+				System.out.println("File too big to send:" + uf.getName());
+			}
+		});
 	}
 	
 	public void detectDeleted() {
@@ -126,26 +233,7 @@ public class SyncService {
 		});
 	}
 	
-	
-	public void syncuploadfile(String base64creds, Long maxsize) {
-		if(verbose>0) {
-			System.out.println("In sync upload file");
-		}
-		List<SyncFile> ufiles = repo.findAllByOpAndFileurl("upload",fileurl);
-		
-		ufiles.forEach(uf -> {
-			if(verbose>1) {
-				System.out.println("Uploading on server: " + uf.getName());
-			}
-			if(uf.getSize()<maxsize) {
-				Uploader upload = new Uploader(base64creds, uf, verbose, fileurl, repo);
-				upload.start();			    
-			}
-			else {
-				System.out.println("File too big to send:" + uf.getName());
-			}
-		});
-	}
+
 	
 	public void syncdeletefile(String base64creds) {
 		if(verbose>0) {

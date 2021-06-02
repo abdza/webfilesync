@@ -10,13 +10,28 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import lombok.Data;
+
+@Component
+@Scope("prototype")
+@Data
 public class Syncher extends Thread {
+	
+	@Autowired
+	private SyncFileRepository repo;
 
 	private String basefolder;
 	private List<String> filters;
 	private String relpath;
 	private String fileurl;
-	private SyncFileRepository repo;
+	
 	private Integer verbose;
 	private Date updateDate;
 
@@ -31,18 +46,20 @@ public class Syncher extends Thread {
 
 	}
 
-	public Syncher(String basefolder, List<String> filters, String relpath, String fileurl,
-			SyncFileRepository repo, Integer verbose, Date updateDate) {
+	/* public Syncher(String basefolder, List<String> filters, String relpath, String fileurl,
+			Integer verbose, Date updateDate) {
 		super();
 		this.basefolder = basefolder;
 		this.filters = filters;		
 		this.relpath = relpath;
-		this.fileurl = fileurl;
-		this.repo = repo;
+		this.fileurl = fileurl;		
 		this.verbose = verbose;
 		this.updateDate = updateDate;
-	}
+		ApplicationContext context = new AnnotationConfigApplicationContext(Syncher.class);
+		this.repo = context.getBean(SyncFileRepository.class);
+	} */
 
+	@Transactional
 	public void run() {
 		System.out.println("Running thread sync for basefolder:" + basefolder);		
 
@@ -125,10 +142,15 @@ public class Syncher extends Thread {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
-
-					repo.save(sfile);		
-					if(verbose>1) {
-						System.out.println("Saved new record");
+					
+					try {
+						repo.save(sfile);		
+						if(verbose>1) {
+							System.out.println("Saved new record");
+						}
+					} catch (Exception e) {
+						System.out.println("Error saving");
+						e.printStackTrace();
 					}
 				}
 			}
