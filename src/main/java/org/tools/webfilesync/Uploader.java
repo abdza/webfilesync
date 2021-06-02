@@ -32,16 +32,7 @@ public class Uploader extends Thread {
 	private String base64creds;
 	private SyncFile uf;
 	private Integer verbose;
-	private String fileurl;		
-	
-	/* public Uploader(String base64creds, SyncFile uf, Integer verbose, String fileurl, SyncFileRepository repo) {
-		super();
-		this.base64creds = base64creds;
-		this.uf = uf;
-		this.verbose = verbose;
-		this.fileurl = fileurl;
-		this.repo = repo;
-	} */
+	private String fileurl;
 	
 	@Transactional
 	public void run() {

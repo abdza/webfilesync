@@ -46,19 +46,6 @@ public class Syncher extends Thread {
 
 	}
 
-	/* public Syncher(String basefolder, List<String> filters, String relpath, String fileurl,
-			Integer verbose, Date updateDate) {
-		super();
-		this.basefolder = basefolder;
-		this.filters = filters;		
-		this.relpath = relpath;
-		this.fileurl = fileurl;		
-		this.verbose = verbose;
-		this.updateDate = updateDate;
-		ApplicationContext context = new AnnotationConfigApplicationContext(Syncher.class);
-		this.repo = context.getBean(SyncFileRepository.class);
-	} */
-
 	@Transactional
 	public void run() {
 		System.out.println("Running thread sync for basefolder:" + basefolder);		

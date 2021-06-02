@@ -42,6 +42,7 @@ public class SyncService {
 	private static ApplicationContext ctx;
 	
 	private Integer verbose; 
+	private Integer maxthreads;
 	private String fileurl;
 	private Date updateDate;
 	
@@ -116,10 +117,14 @@ public class SyncService {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		System.out.println("----------------- Done starting sync ----------------------");
+		if(verbose>1) {
+			System.out.println("----------------- Done starting sync ----------------------");
+		}
 		syncs.forEach(sync->{
 			try {				
-				System.out.println("Current status of thread:" + sync.getState().name());
+				if(verbose>1) {
+					System.out.println("Current status of thread:" + sync.getState().name());
+				}
 				if(sync.isAlive()) {
 					sync.join();	
 				}				
@@ -128,7 +133,9 @@ public class SyncService {
 				e.printStackTrace();
 			}
 		});
-		System.out.println("----------------- Synced it all ----------------------");
+		if(verbose>1) {
+			System.out.println("----------------- Synced it all ----------------------");
+		}
 	}	
 		
 	public void syncuploadfile(String base64creds, Long maxsize) {
@@ -136,8 +143,7 @@ public class SyncService {
 			System.out.println("In sync upload file");
 		}
 		List<SyncFile> ufiles = repo.findAllByOpAndFileurl("upload",fileurl);
-		List<Uploader> uploaders = new ArrayList<Uploader>();
-		int maxthreads = 20;
+		List<Uploader> uploaders = new ArrayList<Uploader>();		
 		ufiles.forEach(uf -> {
 			if(verbose>1) {
 				System.out.println("Uploading on server: " + uf.getName());
@@ -170,38 +176,7 @@ public class SyncService {
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
-				}
-					
-					
-					
-					/* boolean foundthread = false;
-					int curup = 0;
-					while(!foundthread) {
-						Uploader dup = uploaders.get(curup);
-						if(!dup.isAlive()) {
-							foundthread = true;
-							dup = ctx.getBean(Uploader.class); //new Uploader(base64creds, uf, verbose, fileurl, repo);
-							dup.setBase64creds(base64creds);
-							dup.setUf(uf);
-							dup.setVerbose(verbose);
-							dup.setFileurl(fileurl);
-							dup.start();
-						}
-						else {
-							curup++;
-							if(curup>=uploaders.size()-1) {
-								try {
-									Thread.sleep(1000);
-								} catch (InterruptedException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-								}
-								curup=0;
-							}
-						}
-					}*/
-								
-							    
+				}			    
 			}
 			else {
 				System.out.println("File too big to send:" + uf.getName());
@@ -277,6 +252,7 @@ public class SyncService {
 		fileurl = "http://localhost:9010/api/file_manager/explore/downloads";
 		updateDate = new Date();
 		verbose = 0;
+		maxthreads = 20;
 		List<String> filters = new ArrayList<String>();
 		
 		if(args.containsOption("basefolder")) 
@@ -297,6 +273,18 @@ public class SyncService {
             List<String> values = args.getOptionValues("verbose");
             try {	            	
 				verbose = Integer.valueOf(values.get(0));				
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+		
+		if(args.containsOption("maxthreads")) 
+        {
+            //Get argument values
+            List<String> values = args.getOptionValues("maxthreads");
+            try {	            	
+            	maxthreads = Integer.valueOf(values.get(0));				
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
